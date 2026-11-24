@@ -1,0 +1,10 @@
+{
+  "name": "allowed-products-file-sink",
+  "config": {
+    "connector.class": "org.apache.kafka.connect.file.FileStreamSinkConnector",
+    "tasks.max": "1",
+    "topics": "allowed-products",
+    "file": "/data/storage/allowed-products.txt",
+    "value.converter": "org.apache.kafka.connect.storage.StringConverter"
+  }
+}

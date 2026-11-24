@@ -1,0 +1,615 @@
+# Аналитическая платформа маркетплейса: два кластера Kafka (SASL_SSL + ACL), Schema Registry,
+# Kafka Connect (FileSink), MirrorMaker, Kafka Streams, HDFS, Spark, мониторинг.
+# Подробности и порядок запуска — в README.md.
+
+x-app-build: &app-build
+  context: .
+  dockerfile: Dockerfile
+
+x-app-env: &app-env
+  SSL_TRUSTSTORE_LOCATION: /etc/kafka/client/truststore.jks
+  SSL_TRUSTSTORE_PASSWORD: "551288d"
+
+x-app-volumes: &app-volumes
+  - ./security:/etc/kafka/client:ro
+
+x-broker-build: &broker-build
+  context: .
+  dockerfile: kafka/Dockerfile
+
+x-broker-env: &broker-env
+  KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+  KAFKA_DELETE_TOPIC_ENABLE: "true"
+  KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+  KAFKA_MIN_INSYNC_REPLICAS: 2
+  KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+  KAFKA_OFFSETS_TOPIC_NUM_PARTITIONS: 3
+  KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+  KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+  KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: SASL_SSL:SASL_SSL
+  KAFKA_INTER_BROKER_LISTENER_NAME: SASL_SSL
+  KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAIN
+  KAFKA_SASL_ENABLED_MECHANISMS: PLAIN
+  KAFKA_SSL_CLIENT_AUTH: requested
+  KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: https
+  KAFKA_AUTHORIZER_CLASS_NAME: kafka.security.authorizer.AclAuthorizer
+  KAFKA_ALLOW_EVERYONE_IF_NO_ACL_FOUND: "false"
+  KAFKA_SUPER_USERS: "User:admin"
+  KAFKA_HEAP_OPTS: "-Xms384m -Xmx384m"
+  KAFKA_OPTS: >-
+    -Djava.security.auth.login.config=/etc/kafka/client/kafka_server_jaas.conf
+    -javaagent:/opt/jmx/jmx_prometheus_javaagent-0.15.0.jar=7071:/opt/jmx/kafka-broker.yml
+
+x-broker-healthcheck: &broker-healthcheck
+  test: ["CMD-SHELL", "KAFKA_OPTS= kafka-broker-api-versions --bootstrap-server localhost:9093 --command-config /etc/kafka/client/client.properties > /dev/null 2>&1"]
+  interval: 10s
+  timeout: 15s
+  retries: 10
+  start_period: 60s
+
+services:
+
+  # ---------------------------------------------------------------- Основной кластер
+  zookeeper-main:
+    image: confluentinc/cp-zookeeper:7.4.4
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_SASL_ENABLED: "true"
+      ZOOKEEPER_REQUIRE_CLIENT_AUTH_SCHEME: sasl
+      ZOOKEEPER_AUTH_PROVIDER_1: org.apache.zookeeper.server.auth.SASLAuthenticationProvider
+      KAFKA_OPTS: >-
+        -Djava.security.auth.login.config=/etc/zookeeper/secrets/zookeeper.sasl.jaas.conf
+        -Dzookeeper.authProvider.1=org.apache.zookeeper.server.auth.SASLAuthenticationProvider
+        -Dzookeeper.allowSaslFailedClients=false
+    volumes:
+      - ./security/zookeeper.sasl.jaas.conf:/etc/zookeeper/secrets/zookeeper.sasl.jaas.conf:ro
+    mem_limit: 512m
+
+  kafka-0:
+    build: *broker-build
+    mem_limit: 768m
+    depends_on: [zookeeper-main]
+    environment:
+      <<: *broker-env
+      KAFKA_BROKER_ID: 0
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper-main:2181
+      KAFKA_LISTENERS: SASL_SSL://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: SASL_SSL://kafka-0:9093
+      KAFKA_SSL_KEYSTORE_FILENAME: kafka-0.keystore.jks
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: kafka-0_keystore_creds
+      KAFKA_SSL_KEY_CREDENTIALS: kafka-0_sslkey_creds
+      KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.kafka-0.truststore.jks
+      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: kafka-0_truststore_creds
+    volumes:
+      - ./kafka-0-creds:/etc/kafka/secrets:ro
+      - ./security:/etc/kafka/client:ro
+    healthcheck: *broker-healthcheck
+
+  kafka-1:
+    build: *broker-build
+    mem_limit: 768m
+    depends_on: [zookeeper-main]
+    environment:
+      <<: *broker-env
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper-main:2181
+      KAFKA_LISTENERS: SASL_SSL://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: SASL_SSL://kafka-1:9093
+      KAFKA_SSL_KEYSTORE_FILENAME: kafka-1.keystore.jks
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: kafka-1_keystore_creds
+      KAFKA_SSL_KEY_CREDENTIALS: kafka-1_sslkey_creds
+      KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.kafka-1.truststore.jks
+      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: kafka-1_truststore_creds
+    volumes:
+      - ./kafka-1-creds:/etc/kafka/secrets:ro
+      - ./security:/etc/kafka/client:ro
+    healthcheck: *broker-healthcheck
+
+  kafka-2:
+    build: *broker-build
+    mem_limit: 768m
+    depends_on: [zookeeper-main]
+    environment:
+      <<: *broker-env
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper-main:2181
+      KAFKA_LISTENERS: SASL_SSL://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: SASL_SSL://kafka-2:9093
+      KAFKA_SSL_KEYSTORE_FILENAME: kafka-2.keystore.jks
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: kafka-2_keystore_creds
+      KAFKA_SSL_KEY_CREDENTIALS: kafka-2_sslkey_creds
+      KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.kafka-2.truststore.jks
+      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: kafka-2_truststore_creds
+    volumes:
+      - ./kafka-2-creds:/etc/kafka/secrets:ro
+      - ./security:/etc/kafka/client:ro
+    healthcheck: *broker-healthcheck
+
+  # ---------------------------------------------------------------- Второй кластер (резервная копия и аналитика)
+  zookeeper-second:
+    image: confluentinc/cp-zookeeper:7.4.4
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_SASL_ENABLED: "true"
+      ZOOKEEPER_REQUIRE_CLIENT_AUTH_SCHEME: sasl
+      ZOOKEEPER_AUTH_PROVIDER_1: org.apache.zookeeper.server.auth.SASLAuthenticationProvider
+      KAFKA_OPTS: >-
+        -Djava.security.auth.login.config=/etc/zookeeper/secrets/zookeeper.sasl.jaas.conf
+        -Dzookeeper.authProvider.1=org.apache.zookeeper.server.auth.SASLAuthenticationProvider
+        -Dzookeeper.allowSaslFailedClients=false
+    volumes:
+      - ./security/zookeeper.sasl.jaas.conf:/etc/zookeeper/secrets/zookeeper.sasl.jaas.conf:ro
+    mem_limit: 512m
+
+  kafka-3:
+    build: *broker-build
+    mem_limit: 768m
+    depends_on: [zookeeper-second]
+    environment:
+      <<: *broker-env
+      KAFKA_BROKER_ID: 3
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper-second:2181
+      KAFKA_LISTENERS: SASL_SSL://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: SASL_SSL://kafka-3:9093
+      KAFKA_SSL_KEYSTORE_FILENAME: kafka-3.keystore.jks
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: kafka-3_keystore_creds
+      KAFKA_SSL_KEY_CREDENTIALS: kafka-3_sslkey_creds
+      KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.kafka-3.truststore.jks
+      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: kafka-3_truststore_creds
+    volumes:
+      - ./kafka-3-creds:/etc/kafka/secrets:ro
+      - ./security:/etc/kafka/client:ro
+    healthcheck: *broker-healthcheck
+
+  kafka-4:
+    build: *broker-build
+    mem_limit: 768m
+    depends_on: [zookeeper-second]
+    environment:
+      <<: *broker-env
+      KAFKA_BROKER_ID: 4
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper-second:2181
+      KAFKA_LISTENERS: SASL_SSL://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: SASL_SSL://kafka-4:9093
+      KAFKA_SSL_KEYSTORE_FILENAME: kafka-4.keystore.jks
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: kafka-4_keystore_creds
+      KAFKA_SSL_KEY_CREDENTIALS: kafka-4_sslkey_creds
+      KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.kafka-4.truststore.jks
+      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: kafka-4_truststore_creds
+    volumes:
+      - ./kafka-4-creds:/etc/kafka/secrets:ro
+      - ./security:/etc/kafka/client:ro
+    healthcheck: *broker-healthcheck
+
+  kafka-5:
+    build: *broker-build
+    mem_limit: 768m
+    depends_on: [zookeeper-second]
+    environment:
+      <<: *broker-env
+      KAFKA_BROKER_ID: 5
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper-second:2181
+      KAFKA_LISTENERS: SASL_SSL://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: SASL_SSL://kafka-5:9093
+      KAFKA_SSL_KEYSTORE_FILENAME: kafka-5.keystore.jks
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: kafka-5_keystore_creds
+      KAFKA_SSL_KEY_CREDENTIALS: kafka-5_sslkey_creds
+      KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.kafka-5.truststore.jks
+      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: kafka-5_truststore_creds
+    volumes:
+      - ./kafka-5-creds:/etc/kafka/secrets:ro
+      - ./security:/etc/kafka/client:ro
+    healthcheck: *broker-healthcheck
+
+  # ---------------------------------------------------------------- Инициализация: топики и ACL
+  init-main:
+    image: confluentinc/cp-kafka:7.4.4
+    entrypoint: ["bash", "/init/init-cluster.sh"]
+    environment:
+      CLUSTER: main
+    volumes:
+      - ./init:/init:ro
+      - ./security:/etc/kafka/client:ro
+    depends_on:
+      kafka-0: {condition: service_healthy}
+      kafka-1: {condition: service_healthy}
+      kafka-2: {condition: service_healthy}
+    restart: "no"
+
+  init-second:
+    image: confluentinc/cp-kafka:7.4.4
+    entrypoint: ["bash", "/init/init-cluster.sh"]
+    environment:
+      CLUSTER: second
+    volumes:
+      - ./init:/init:ro
+      - ./security:/etc/kafka/client:ro
+    depends_on:
+      kafka-3: {condition: service_healthy}
+      kafka-4: {condition: service_healthy}
+      kafka-5: {condition: service_healthy}
+    restart: "no"
+
+  # ---------------------------------------------------------------- Schema Registry (основной кластер)
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.4.4
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: SASL_SSL://kafka-0:9093,SASL_SSL://kafka-1:9093,SASL_SSL://kafka-2:9093
+      SCHEMA_REGISTRY_KAFKASTORE_SECURITY_PROTOCOL: SASL_SSL
+      SCHEMA_REGISTRY_KAFKASTORE_SASL_MECHANISM: PLAIN
+      SCHEMA_REGISTRY_KAFKASTORE_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.plain.PlainLoginModule required username="admin" password="admin-secret";'
+      SCHEMA_REGISTRY_KAFKASTORE_SSL_TRUSTSTORE_LOCATION: /etc/kafka/client/truststore.jks
+      SCHEMA_REGISTRY_KAFKASTORE_SSL_TRUSTSTORE_PASSWORD: "551288d"
+    volumes:
+      - ./security:/etc/kafka/client:ro
+    depends_on:
+      init-main: {condition: service_completed_successfully}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8081/subjects > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    mem_limit: 768m
+
+  schema-init:
+    build: *app-build
+    image: kafka-final-app:latest
+    entrypoint: ["java", "-cp", "/app/app.jar", "org.example.common.SchemaRegistrar"]
+    environment:
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+    depends_on:
+      schema-registry: {condition: service_healthy}
+    restart: "no"
+
+  # ---------------------------------------------------------------- Kafka Connect: FileSink
+  kafka-connect:
+    build:
+      context: .
+      dockerfile: connect/Dockerfile
+    ports:
+      - "8083:8083"
+    depends_on:
+      init-main: {condition: service_completed_successfully}
+      schema-registry: {condition: service_healthy}
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: kafka-0:9093,kafka-1:9093,kafka-2:9093
+      CONNECT_GROUP_ID: connect-cluster
+      CONNECT_CONFIG_STORAGE_TOPIC: connect-config-storage
+      CONNECT_OFFSET_STORAGE_TOPIC: connect-offset-storage
+      CONNECT_STATUS_STORAGE_TOPIC: connect-status-storage
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 3
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 3
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 3
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+      CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
+      CONNECT_REST_PORT: 8083
+      CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components
+      CONNECT_SECURITY_PROTOCOL: SASL_SSL
+      CONNECT_SASL_MECHANISM: PLAIN
+      CONNECT_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.plain.PlainLoginModule required username="connect" password="connect-secret";'
+      CONNECT_SSL_TRUSTSTORE_LOCATION: /etc/kafka/client/truststore.jks
+      CONNECT_SSL_TRUSTSTORE_PASSWORD: "551288d"
+      CONNECT_PRODUCER_SECURITY_PROTOCOL: SASL_SSL
+      CONNECT_PRODUCER_SASL_MECHANISM: PLAIN
+      CONNECT_PRODUCER_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.plain.PlainLoginModule required username="connect" password="connect-secret";'
+      CONNECT_PRODUCER_SSL_TRUSTSTORE_LOCATION: /etc/kafka/client/truststore.jks
+      CONNECT_PRODUCER_SSL_TRUSTSTORE_PASSWORD: "551288d"
+      CONNECT_CONSUMER_SECURITY_PROTOCOL: SASL_SSL
+      CONNECT_CONSUMER_SASL_MECHANISM: PLAIN
+      CONNECT_CONSUMER_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.plain.PlainLoginModule required username="connect" password="connect-secret";'
+      CONNECT_CONSUMER_SSL_TRUSTSTORE_LOCATION: /etc/kafka/client/truststore.jks
+      CONNECT_CONSUMER_SSL_TRUSTSTORE_PASSWORD: "551288d"
+      KAFKA_OPTS: "-javaagent:/opt/jmx/jmx_prometheus_javaagent-0.15.0.jar=7071:/opt/jmx/kafka-connect.yml"
+    volumes:
+      - ./security:/etc/kafka/client:ro
+      - ./storage:/data/storage
+    mem_limit: 1g
+
+  connect-setup:
+    image: curlimages/curl:8.7.1
+    entrypoint: ["sh", "-c"]
+    command:
+      - >-
+        until curl -fs http://kafka-connect:8083/connectors > /dev/null; do sleep 3; done;
+        for f in /connectors/*.json; do
+        echo "Регистрация коннектора $$f";
+        curl -fs -X POST -H 'Content-Type: application/json' --data @$$f http://kafka-connect:8083/connectors;
+        echo;
+        done
+    volumes:
+      - ./connect/connectors:/connectors:ro
+    depends_on:
+      kafka-connect: {condition: service_started}
+    restart: "no"
+
+  # ---------------------------------------------------------------- MirrorMaker: дублирование между кластерами
+  mirror-main-to-second:
+    image: confluentinc/cp-kafka:7.4.4
+    entrypoint:
+      - kafka-mirror-maker
+      - --consumer.config
+      - /etc/mirror/main-to-second.consumer.properties
+      - --producer.config
+      - /etc/mirror/main-to-second.producer.properties
+      - --whitelist
+      - shop-products|user-events|allowed-products
+      - --num.streams
+      - "1"
+    volumes:
+      - ./mirror:/etc/mirror:ro
+      - ./security:/etc/kafka/client:ro
+    depends_on:
+      init-main: {condition: service_completed_successfully}
+      init-second: {condition: service_completed_successfully}
+    restart: unless-stopped
+
+  mirror-second-to-main:
+    image: confluentinc/cp-kafka:7.4.4
+    entrypoint:
+      - kafka-mirror-maker
+      - --consumer.config
+      - /etc/mirror/second-to-main.consumer.properties
+      - --producer.config
+      - /etc/mirror/second-to-main.producer.properties
+      - --whitelist
+      - recommendations
+      - --num.streams
+      - "1"
+    volumes:
+      - ./mirror:/etc/mirror:ro
+      - ./security:/etc/kafka/client:ro
+    depends_on:
+      init-main: {condition: service_completed_successfully}
+      init-second: {condition: service_completed_successfully}
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------- Источник SHOP API (одноразовый запуск)
+  shop-producer:
+    build: *app-build
+    image: kafka-final-app:latest
+    profiles: [jobs]
+    entrypoint: ["java", "-cp", "/app/app.jar", "org.example.shop.ShopProducer"]
+    command: ["/data/goods.json"]
+    volumes:
+      - ./security:/etc/kafka/client:ro
+      - ./goods.json:/data/goods.json:ro
+    environment:
+      <<: *app-env
+      KAFKA_BOOTSTRAP_SERVERS: kafka-0:9093,kafka-1:9093,kafka-2:9093
+      KAFKA_USER: shop
+      KAFKA_PASSWORD: shop-secret
+    depends_on:
+      init-main: {condition: service_completed_successfully}
+
+  # ---------------------------------------------------------------- Потоковая фильтрация (Kafka Streams)
+  product-filter:
+    build: *app-build
+    image: kafka-final-app:latest
+    entrypoint: ["java", "-cp", "/app/app.jar", "org.example.streams.BannedProductsFilterApp"]
+    volumes: *app-volumes
+    environment:
+      <<: *app-env
+      KAFKA_BOOTSTRAP_SERVERS: kafka-0:9093,kafka-1:9093,kafka-2:9093
+      KAFKA_USER: streams
+      KAFKA_PASSWORD: streams-secret
+    depends_on:
+      init-main: {condition: service_completed_successfully}
+    restart: unless-stopped
+    mem_limit: 512m
+
+  # ---------------------------------------------------------------- CLI: модератор (список запрещённых)
+  banned-cli:
+    build: *app-build
+    image: kafka-final-app:latest
+    profiles: [cli]
+    entrypoint: ["java", "-Dorg.slf4j.simpleLogger.defaultLogLevel=warn", "-cp", "/app/app.jar", "org.example.admin.BannedProductsCli"]
+    volumes: *app-volumes
+    environment:
+      <<: *app-env
+      KAFKA_BOOTSTRAP_SERVERS: kafka-0:9093,kafka-1:9093,kafka-2:9093
+      KAFKA_USER: moderator
+      KAFKA_PASSWORD: moderator-secret
+    depends_on:
+      init-main: {condition: service_completed_successfully}
+
+  # ---------------------------------------------------------------- CLI: CLIENT API
+  client-cli:
+    build: *app-build
+    image: kafka-final-app:latest
+    profiles: [cli]
+    entrypoint: ["java", "-Dorg.slf4j.simpleLogger.defaultLogLevel=warn", "-cp", "/app/app.jar", "org.example.client.ClientCli"]
+    volumes:
+      - ./security:/etc/kafka/client:ro
+      - ./storage:/data/storage:ro
+    environment:
+      <<: *app-env
+      KAFKA_BOOTSTRAP_SERVERS: kafka-0:9093,kafka-1:9093,kafka-2:9093
+      KAFKA_USER: client
+      KAFKA_PASSWORD: client-secret
+    depends_on:
+      init-main: {condition: service_completed_successfully}
+
+  # ---------------------------------------------------------------- Аналитика: второй кластер -> HDFS
+  hdfs-loader:
+    build: *app-build
+    image: kafka-final-app:latest
+    entrypoint: ["java", "-Xmx256m", "-cp", "/app/app.jar", "org.example.analytics.HdfsLoader"]
+    volumes: *app-volumes
+    environment:
+      <<: *app-env
+      KAFKA_BOOTSTRAP_SERVERS: kafka-3:9093,kafka-4:9093,kafka-5:9093
+      KAFKA_USER: analytics
+      KAFKA_PASSWORD: analytics-secret
+      HDFS_URI: hdfs://hadoop-namenode:9000
+      HADOOP_USER_NAME: root
+    depends_on:
+      init-second: {condition: service_completed_successfully}
+      hadoop-namenode: {condition: service_started}
+    restart: unless-stopped
+    mem_limit: 512m
+
+  # Публикация рекомендаций из HDFS в топик recommendations (второй кластер)
+  recommendations-publisher:
+    build: *app-build
+    image: kafka-final-app:latest
+    profiles: [jobs]
+    entrypoint: ["java", "-Xmx256m", "-cp", "/app/app.jar", "org.example.analytics.RecommendationsPublisher"]
+    volumes: *app-volumes
+    environment:
+      <<: *app-env
+      KAFKA_BOOTSTRAP_SERVERS: kafka-3:9093,kafka-4:9093,kafka-5:9093
+      KAFKA_USER: analytics
+      KAFKA_PASSWORD: analytics-secret
+      HDFS_URI: hdfs://hadoop-namenode:9000
+      HADOOP_USER_NAME: root
+    depends_on:
+      init-second: {condition: service_completed_successfully}
+
+  # ---------------------------------------------------------------- HDFS (Data Lake)
+  hadoop-namenode:
+    image: apache/hadoop:3.4.1
+    platform: linux/amd64
+    user: root
+    entrypoint: ["/bin/bash", "/namenode_entrypoint.sh"]
+    command: ["hdfs", "namenode"]
+    ports:
+      - "19870:9870"
+    volumes:
+      - ./hadoop/config/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml
+      - ./hadoop/config/hdfs-site-namenode.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml
+      - ./hadoop/namenode_entrypoint.sh:/namenode_entrypoint.sh
+    shm_size: 512m
+    mem_limit: 1g
+
+  hadoop-datanode-1:
+    image: apache/hadoop:3.4.1
+    platform: linux/amd64
+    user: root
+    entrypoint: ["/bin/bash", "/datanode_entrypoint.sh"]
+    command: ["hdfs", "datanode"]
+    depends_on: [hadoop-namenode]
+    volumes:
+      - ./hadoop/config/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml
+      - ./hadoop/config/hdfs-site-datanode-1.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml
+      - ./hadoop/datanode_entrypoint.sh:/datanode_entrypoint.sh
+    shm_size: 512m
+    mem_limit: 768m
+
+  hadoop-datanode-2:
+    image: apache/hadoop:3.4.1
+    platform: linux/amd64
+    user: root
+    entrypoint: ["/bin/bash", "/datanode_entrypoint.sh"]
+    command: ["hdfs", "datanode"]
+    depends_on: [hadoop-namenode]
+    volumes:
+      - ./hadoop/config/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml
+      - ./hadoop/config/hdfs-site-datanode-2.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml
+      - ./hadoop/datanode_entrypoint.sh:/datanode_entrypoint.sh
+    shm_size: 512m
+    mem_limit: 768m
+
+  # ---------------------------------------------------------------- Spark (аналитика)
+  # jar приложения копируется в том app-jar; spark-submit запускается в spark-master (см. README)
+  jar-export:
+    build: *app-build
+    image: kafka-final-app:latest
+    entrypoint: ["sh", "-c", "cp /app/app.jar /shared/app.jar"]
+    volumes:
+      - app-jar:/shared
+    restart: "no"
+
+  spark-master:
+    image: bitnamilegacy/spark:3.5.4
+    ports:
+      - "8090:8080"
+    environment:
+      SPARK_MODE: master
+      SPARK_MASTER_HOST: spark-master
+    volumes:
+      - app-jar:/shared:ro
+    depends_on:
+      jar-export: {condition: service_completed_successfully}
+    mem_limit: 1g
+
+  spark-worker-1:
+    image: bitnamilegacy/spark:3.5.4
+    environment:
+      SPARK_MODE: worker
+      SPARK_MASTER_URL: spark://spark-master:7077
+      SPARK_WORKER_MEMORY: 1g
+      SPARK_WORKER_CORES: 1
+    depends_on: [spark-master]
+    mem_limit: 1280m
+
+  # ---------------------------------------------------------------- Веб-интерфейс Kafka
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.0
+    ports:
+      - "8085:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: main
+      KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS: kafka-0:9093,kafka-1:9093,kafka-2:9093
+      KAFKA_CLUSTERS_0_PROPERTIES_SECURITY_PROTOCOL: SASL_SSL
+      KAFKA_CLUSTERS_0_PROPERTIES_SASL_MECHANISM: PLAIN
+      KAFKA_CLUSTERS_0_PROPERTIES_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.plain.PlainLoginModule required username="admin" password="admin-secret";'
+      KAFKA_CLUSTERS_0_PROPERTIES_SSL_TRUSTSTORE_LOCATION: /etc/kafka/client/truststore.jks
+      KAFKA_CLUSTERS_0_PROPERTIES_SSL_TRUSTSTORE_PASSWORD: "551288d"
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8081
+      KAFKA_CLUSTERS_1_NAME: second
+      KAFKA_CLUSTERS_1_BOOTSTRAP_SERVERS: kafka-3:9093,kafka-4:9093,kafka-5:9093
+      KAFKA_CLUSTERS_1_PROPERTIES_SECURITY_PROTOCOL: SASL_SSL
+      KAFKA_CLUSTERS_1_PROPERTIES_SASL_MECHANISM: PLAIN
+      KAFKA_CLUSTERS_1_PROPERTIES_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.plain.PlainLoginModule required username="admin" password="admin-secret";'
+      KAFKA_CLUSTERS_1_PROPERTIES_SSL_TRUSTSTORE_LOCATION: /etc/kafka/client/truststore.jks
+      KAFKA_CLUSTERS_1_PROPERTIES_SSL_TRUSTSTORE_PASSWORD: "551288d"
+    volumes:
+      - ./security:/etc/kafka/client:ro
+    depends_on:
+      init-main: {condition: service_completed_successfully}
+      init-second: {condition: service_completed_successfully}
+    mem_limit: 768m
+
+  # ---------------------------------------------------------------- Мониторинг
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus:/etc/prometheus:ro
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    mem_limit: 512m
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    ports:
+      - "19093:9093"
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    mem_limit: 128m
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on: [prometheus]
+    mem_limit: 512m
+
+volumes:
+  app-jar: {}

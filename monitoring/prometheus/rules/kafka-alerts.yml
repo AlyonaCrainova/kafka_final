@@ -1,0 +1,29 @@
+groups:
+  - name: kafka
+    rules:
+      - alert: KafkaBrokerDown
+        expr: up{job=~"kafka-main|kafka-second"} == 0
+        for: 20s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Брокер Kafka недоступен"
+          description: "Брокер {{ $labels.instance }} кластера {{ $labels.cluster }} не отвечает на сбор метрик более 20 секунд."
+
+      - alert: KafkaUnderReplicatedPartitions
+        expr: sum by (cluster) (kafka_server_replicamanager_underreplicatedpartitions) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Недореплицированные партиции"
+          description: "В кластере {{ $labels.cluster }} есть партиции, у которых не все реплики синхронизированы."
+
+      - alert: KafkaNoActiveController
+        expr: sum by (cluster) (kafka_controller_kafkacontroller_activecontrollercount) < 1
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Нет активного контроллера Kafka"
+          description: "В кластере {{ $labels.cluster }} нет активного контроллера."

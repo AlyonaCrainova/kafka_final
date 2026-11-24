@@ -1,0 +1,21 @@
+[req]
+prompt = no
+distinguished_name = dn
+req_extensions = v3_req
+
+[dn]
+C = RU
+O = Yandex
+OU = Practice
+L = Moscow
+CN = kafka-5
+
+[v3_req]
+basicConstraints = CA:FALSE
+keyUsage = critical, digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth, clientAuth
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = kafka-5
+DNS.2 = localhost

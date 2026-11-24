@@ -1,0 +1,76 @@
+{
+  "uid": "kafka-overview",
+  "title": "Kafka: обзор кластеров",
+  "tags": ["kafka"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-30m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Брокеры в сети",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        { "refId": "A", "expr": "sum by (cluster) (up{job=~\"kafka-main|kafka-second\"})", "legendFormat": "кластер {{cluster}}" }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Активные контроллеры",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "targets": [
+        { "refId": "A", "expr": "sum by (cluster) (kafka_controller_kafkacontroller_activecontrollercount)", "legendFormat": "кластер {{cluster}}" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Недореплицированные партиции",
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 0 },
+      "targets": [
+        { "refId": "A", "expr": "sum by (cluster) (kafka_server_replicamanager_underreplicatedpartitions)", "legendFormat": "кластер {{cluster}}" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Офлайн партиции",
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 0 },
+      "targets": [
+        { "refId": "A", "expr": "sum by (cluster) (kafka_controller_kafkacontroller_offlinepartitionscount)", "legendFormat": "кластер {{cluster}}" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Входящие сообщения, msg/s",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "targets": [
+        { "refId": "A", "expr": "sum by (cluster) (rate(kafka_server_brokertopicmetrics_messagesin_total[1m]))", "legendFormat": "кластер {{cluster}}" }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Трафик, байт/s (вход и выход)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "targets": [
+        { "refId": "A", "expr": "sum by (cluster) (rate(kafka_server_brokertopicmetrics_bytesin_total[1m]))", "legendFormat": "вход, кластер {{cluster}}" },
+        { "refId": "B", "expr": "sum by (cluster) (rate(kafka_server_brokertopicmetrics_bytesout_total[1m]))", "legendFormat": "выход, кластер {{cluster}}" }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Состояние брокеров (up)",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 14 },
+      "targets": [
+        { "refId": "A", "expr": "up{job=~\"kafka-main|kafka-second|kafka-connect\"}", "legendFormat": "{{instance}}" }
+      ]
+    }
+  ]
+}

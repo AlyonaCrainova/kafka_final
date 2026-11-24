@@ -1,0 +1,11 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Recommendation",
+  "type": "object",
+  "properties": {
+    "user_id": { "type": "string" },
+    "recommended_products": { "type": "array", "items": { "type": "string" }, "maxItems": 5 },
+    "generated_at": { "type": "string" }
+  },
+  "required": ["user_id", "recommended_products", "generated_at"]
+}

@@ -1,0 +1,10 @@
+route:
+  receiver: default
+  group_by: ['alertname', 'cluster']
+  group_wait: 5s
+  group_interval: 30s
+  repeat_interval: 1h
+
+# Внешние уведомления не настроены: алерты видны в UI Alertmanager (http://localhost:19093/#/alerts)
+receivers:
+  - name: default
