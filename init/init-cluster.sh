@@ -39,9 +39,10 @@ if [ "$CLUSTER" = "main" ]; then
   # shop: запись товаров из SHOP API
   $ACL --allow-principal User:shop --operation Write --operation Describe --topic shop-products
 
-  # client: запись событий поиска и взаимодействий; чтение готовых рекомендаций
+  # client: запись событий поиска и взаимодействий; чтение готовых рекомендаций и списка запрещённых (фильтр поиска)
   $ACL --allow-principal User:client --operation Write --operation Describe --topic user-events
   $ACL --allow-principal User:client --operation Read --operation Describe --topic recommendations
+  $ACL --allow-principal User:client --operation Read --operation Describe --topic banned-products
 
   # moderator: управление списком запрещённых товаров
   $ACL --allow-principal User:moderator --operation Read --operation Write --operation Describe --topic banned-products

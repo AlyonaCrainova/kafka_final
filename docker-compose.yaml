@@ -246,6 +246,7 @@ services:
       SCHEMA_REGISTRY_KAFKASTORE_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.plain.PlainLoginModule required username="admin" password="admin-secret";'
       SCHEMA_REGISTRY_KAFKASTORE_SSL_TRUSTSTORE_LOCATION: /etc/kafka/client/truststore.jks
       SCHEMA_REGISTRY_KAFKASTORE_SSL_TRUSTSTORE_PASSWORD: "551288d"
+      SCHEMA_REGISTRY_KAFKASTORE_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: https
     volumes:
       - ./security:/etc/kafka/client:ro
     depends_on:
@@ -299,16 +300,19 @@ services:
       CONNECT_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.plain.PlainLoginModule required username="connect" password="connect-secret";'
       CONNECT_SSL_TRUSTSTORE_LOCATION: /etc/kafka/client/truststore.jks
       CONNECT_SSL_TRUSTSTORE_PASSWORD: "551288d"
+      CONNECT_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: https
       CONNECT_PRODUCER_SECURITY_PROTOCOL: SASL_SSL
       CONNECT_PRODUCER_SASL_MECHANISM: PLAIN
       CONNECT_PRODUCER_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.plain.PlainLoginModule required username="connect" password="connect-secret";'
       CONNECT_PRODUCER_SSL_TRUSTSTORE_LOCATION: /etc/kafka/client/truststore.jks
       CONNECT_PRODUCER_SSL_TRUSTSTORE_PASSWORD: "551288d"
+      CONNECT_PRODUCER_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: https
       CONNECT_CONSUMER_SECURITY_PROTOCOL: SASL_SSL
       CONNECT_CONSUMER_SASL_MECHANISM: PLAIN
       CONNECT_CONSUMER_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.plain.PlainLoginModule required username="connect" password="connect-secret";'
       CONNECT_CONSUMER_SSL_TRUSTSTORE_LOCATION: /etc/kafka/client/truststore.jks
       CONNECT_CONSUMER_SSL_TRUSTSTORE_PASSWORD: "551288d"
+      CONNECT_CONSUMER_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: https
       KAFKA_OPTS: "-javaagent:/opt/jmx/jmx_prometheus_javaagent-0.15.0.jar=7071:/opt/jmx/kafka-connect.yml"
     volumes:
       - ./security:/etc/kafka/client:ro
@@ -565,6 +569,7 @@ services:
       KAFKA_CLUSTERS_0_PROPERTIES_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.plain.PlainLoginModule required username="admin" password="admin-secret";'
       KAFKA_CLUSTERS_0_PROPERTIES_SSL_TRUSTSTORE_LOCATION: /etc/kafka/client/truststore.jks
       KAFKA_CLUSTERS_0_PROPERTIES_SSL_TRUSTSTORE_PASSWORD: "551288d"
+      KAFKA_CLUSTERS_0_PROPERTIES_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: https
       KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8081
       KAFKA_CLUSTERS_1_NAME: second
       KAFKA_CLUSTERS_1_BOOTSTRAP_SERVERS: kafka-3:9093,kafka-4:9093,kafka-5:9093
@@ -573,6 +578,7 @@ services:
       KAFKA_CLUSTERS_1_PROPERTIES_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.plain.PlainLoginModule required username="admin" password="admin-secret";'
       KAFKA_CLUSTERS_1_PROPERTIES_SSL_TRUSTSTORE_LOCATION: /etc/kafka/client/truststore.jks
       KAFKA_CLUSTERS_1_PROPERTIES_SSL_TRUSTSTORE_PASSWORD: "551288d"
+      KAFKA_CLUSTERS_1_PROPERTIES_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: https
     volumes:
       - ./security:/etc/kafka/client:ro
     depends_on:

@@ -115,6 +115,13 @@ docker compose --profile cli run --rm --no-deps client-cli search u1 умные 
 docker compose --profile cli run --rm --no-deps client-cli view u1 12345
 docker compose --profile cli run --rm --no-deps client-cli buy u1 12345
 docker compose --profile cli run --rm --no-deps client-cli recommend u1
+docker compose --profile cli run --rm --no-deps client-cli view u1 12345
+docker compose --profile cli run --rm --no-deps client-cli buy u1 12345
+docker compose --profile cli run --rm --no-deps client-cli view u2 12345
+docker compose --profile cli run --rm --no-deps client-cli view u2 20002
+docker compose --profile cli run --rm --no-deps client-cli cart u2 20002
+docker compose --profile cli run --rm --no-deps client-cli view u3 20003
+docker compose --profile cli run --rm --no-deps client-cli buy u3 20004
 ```
 
 Команды `view|cart|buy|review` отправляют событие в `user-events`. `search` ищет в файле `storage/allowed-products.txt` и тоже отправляет поисковый запрос в `user-events`. Поиск работает после загрузки товаров (`shop-producer`), до этого выводится сообщение «Каталог пуст». `recommend` только читает готовые рекомендации из топика `recommendations`.
@@ -153,18 +160,22 @@ docker compose exec hadoop-namenode hdfs dfs -ls -R /data
 |---|---|---|
 | Фильтрация запрещённых | `banned-cli add 12345`, затем `shop-producer` | в логе `product-filter` строка «Запрещённый товар отфильтрован: 12345», товара нет в файле `storage/allowed-products.txt` |
 | Запись в хранилище | `cat storage/allowed-products.txt` | в файле по одной строке JSON на каждый разрешённый товар |
+| Бан после записи | товар есть в файле и в поиске, затем `banned-cli add <id>`, затем `client-cli search` | товар в файле остаётся, но поиск его не находит |
 | Коннектор | `docker compose exec kafka-connect curl -s localhost:8083/connectors/allowed-products-file-sink/status` | state `RUNNING` |
 | Дублирование | `kafka-console-consumer` с `kafka-3` (второй кластер) по `user-events` | события из основного кластера есть на втором |
 | HDFS | `hdfs dfs -ls -R /data` | каталоги `allowed-products`, `user-events` с файлами; после Spark-job — `analytics/product_stats` и `recommendations` |
 | Рекомендации | `client-cli recommend u1` | JSON с `recommended_products` |
 | ACL | клиент пишет в `shop-products` | запись не проходит (нет права Write) |
 | TLS и аутентификация | `kafka-broker-api-versions` с `security.protocol=PLAINTEXT`; с неверным паролем | без TLS подключение не проходит; с неверным паролем `SaslAuthenticationException` |
+| Проверка имени хоста TLS | подключиться к брокеру по IP-адресу изнутри docker-сети: `docker compose exec -e KAFKA_OPTS= kafka-0 bash -c 'kafka-broker-api-versions --bootstrap-server $(getent hosts kafka-1 \| awk "{print \$1}"):9093 --command-config /etc/kafka/client/client.properties'` | ошибка `No subject alternative names matching IP address`, подключение не проходит |
 | Репликация и min.insync | `kafka-topics --describe` для `shop-products`; затем `docker compose stop kafka-1`, запись с `acks=all`; затем `stop kafka-2`, та же запись | RF=3, `min.insync.replicas=2`, все реплики в `Isr`. При одном остановленном брокере запись проходит, при двух — `NOT_ENOUGH_REPLICAS` |
 | Дублирование в оба кластера | сравнить `GetOffsetShell` для `shop-products`, `user-events`, `allowed-products` на `kafka-0` и `kafka-3` | количество сообщений совпадает |
 | Возврат рекомендаций | `client-cli recommend u1` после публикации | рекомендации из второго кластера видны в основном (через MirrorMaker, 10–30 с) |
 | Мониторинг | Prometheus `http://localhost:9090/targets` | все брокеры `up` |
 | Алерт | `docker compose stop kafka-1`, подождать 60 с | алерт `KafkaBrokerDown` появляется в Alertmanager `http://localhost:19093/#/alerts` |
 | Дашборд | Grafana `http://localhost:3000` (admin / admin), папка Kafka | дашборд «Kafka: обзор кластеров» |
+
+Порты брокеров наружу не публикуются, поэтому все проверки подключения к брокерам выполняются изнутри docker-сети через контейнер брокера (например, `docker compose exec -e KAFKA_OPTS= kafka-0 ...`). Флаг `-e KAFKA_OPTS=` обязателен: без него JVM наследует javaagent JMX Exporter и падает, так как порт 7071 уже занят.
 
 ---
 
@@ -176,7 +187,7 @@ docker compose exec hadoop-namenode hdfs dfs -ls -R /data
 |---|---|
 | admin | суперпользователь, для инициализации и Schema Registry |
 | shop | Write в `shop-products` |
-| client | Write в `user-events`, Read в `recommendations` |
+| client | Write в `user-events`, Read в `recommendations` и `banned-products` (фильтр поиска) |
 | moderator | Read, Write в `banned-products` |
 | streams | Read `shop-products`, `banned-products`; Write `allowed-products`; группа `product-filter-app` |
 | connect | Read `allowed-products`; служебные топики и группы `connect-*` |
@@ -194,7 +205,7 @@ docker compose exec hadoop-namenode hdfs dfs -ls -R /data
 | recommendations | main, second | рекомендации от Spark (second) и их копия (main) |
 | connect-config/offset/status-storage, _schemas | main | служебные топики Connect и Schema Registry |
 
-**TLS.** Все клиенты и брокеры работают по SASL_SSL. Сертификаты основного кластера взяты из модуля 7 (`kafka-0..2-creds`), для второго кластера созданы новые (`kafka-3..5-creds`) скриптом `certs/generate-second-cluster.sh`, подписанным тем же CA (`certs/ca/`). Truststore — `security/truststore.jks`.
+**TLS.** Все клиенты и брокеры работают по SASL_SSL. Проверка имени хоста включена (`ssl.endpoint.identification.algorithm=https`) во всех клиентах: Java-приложения (`KafkaSettings`), MirrorMaker, Kafka Connect, Schema Registry, Kafka UI и брокеры. Клиенты подключаются только по именам из SAN сертификатов брокеров (`kafka-N`, `localhost`). Сертификаты основного кластера взяты из модуля 7 (`kafka-0..2-creds`), для второго кластера созданы новые (`kafka-3..5-creds`) скриптом `certs/generate-second-cluster.sh`, подписанным тем же CA (`certs/ca/`). Truststore — `security/truststore.jks`.
 
 **Сертификаты второго кластера.** CA лежит в `certs/ca/`. Чтобы создать сертификаты `kafka-3..5-creds` заново, из корня проекта выполните `bash certs/generate-second-cluster.sh` (нужны `openssl` и `keytool`). Скрипт не меняет сертификаты основного кластера.
 
@@ -210,8 +221,8 @@ docker compose exec hadoop-namenode hdfs dfs -ls -R /data
 | `streams.BannedProductsFilterApp` | Kafka Streams (Processor API): список `banned-products` хранится в глобальном state store, товары из `shop-products` без совпадения уходят в `allowed-products` в исходном JSON товара |
 | `admin.BannedProductsCli` | CLI модератора: `add`, `remove` (tombstone), `list` |
 | `client.ClientCli` | CLI клиента: `search` (поиск по файлу + событие), `recommend` (только consumer), `view/cart/buy/review` (события) |
-| `client.ProductSearch` | поиск товаров по имени без учёта регистра в файле `storage/allowed-products.txt`; при повторах `product_id` берётся последняя запись, не больше 10 результатов |
-| `analytics.HdfsLoader` | consumer второго кластера: `user-events` и `allowed-products` пачками пишет в HDFS, оффсеты коммитятся после записи |
+| `client.ProductSearch` | поиск товаров по имени без учёта регистра в файле `storage/allowed-products.txt`; при повторах `product_id` берётся последняя запись; товары из снапшота `banned-products` пропускаются; не больше 10 результатов |
+| `analytics.HdfsLoader` | consumer второго кластера: `user-events` и `allowed-products` пачками пишет в HDFS по файлу на партицию (`/data/<topic>/p<partition>-<firstOffset>.json`), оффсеты коммитятся после записи. После падения чтение начинается с последнего закоммиченного оффсета, поэтому имя файла совпадает с незакоммиченной пачкой и повтор перезаписывает файл, а не создаёт дубль (Spark не задваивает статистику) |
 | `analytics.RecommendationsSparkJob` | Spark SQL: статистика по товарам (просмотры, корзина, покупки, популярность); рекомендации — до 5 самых популярных товаров, которые пользователь ещё не смотрел |
 | `analytics.RecommendationsPublisher` | producer: читает рекомендации из HDFS и публикует в `recommendations` второго кластера |
 | `common.SchemaRegistrar` | регистрация JSON Schema из `src/main/resources/schemas/` в Schema Registry |
@@ -221,7 +232,7 @@ docker compose exec hadoop-namenode hdfs dfs -ls -R /data
 
 **Коннекторы Kafka Connect** (`connect/connectors/`):
 - `allowed-products-file-sink.json` — `FileStreamSinkConnector`, значения как строки, файл `storage/allowed-products.txt`;
-- Ограничение FileSink: файл только дописывается. Товар, который сначала разрешили, а потом добавили в `banned-products`, останется в файле. Поиск при этом берёт последнюю запись по `product_id`.
+- Ограничение FileSink: файл только дописывается. Товар, который сначала разрешили, а потом добавили в `banned-products`, останется в файле. Поиск (`client-cli search`) сверяет результаты со снапшотом `banned-products` и такой товар не выдаёт. Если Kafka недоступна, поиск завершается ошибкой, а не выдаёт непроверенные результаты.
 
 **Мониторинг** (`monitoring/`):
 - `jmx/kafka-broker.yml` и `jmx/kafka-connect.yml` — правила JMX Exporter (javaagent в брокерах и Connect, порт 7071);

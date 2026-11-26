@@ -38,7 +38,7 @@ public final class KafkaSettings {
                         + required("KAFKA_USER") + "\" password=\"" + required("KAFKA_PASSWORD") + "\";");
         props.put(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG, env("SSL_TRUSTSTORE_LOCATION", "/etc/kafka/client/truststore.jks"));
         props.put(SslConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG, required("SSL_TRUSTSTORE_PASSWORD"));
-        props.put(SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG, "");
+        props.put(SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG, "https");
         return props;
     }
 }

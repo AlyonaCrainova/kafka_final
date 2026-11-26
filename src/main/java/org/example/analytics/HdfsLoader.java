@@ -9,6 +9,7 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.example.common.KafkaSettings;
 import org.example.common.Topics;
@@ -16,15 +17,14 @@ import org.example.common.Topics;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Properties;
-import java.util.UUID;
 
 /**
  * Читает user-events и allowed-products из второго кластера и пишет пачки записей в HDFS:
- * /data/&lt;topic&gt;/batch-&lt;uuid&gt;.json (одна запись на строку). Оффсеты коммитятся после записи пачки.
+ * /data/&lt;topic&gt;/p&lt;partition&gt;-&lt;firstOffset&gt;.json (одна запись на строку). После падения чтение начинается с последнего
+ * закоммиченного оффсета, поэтому имя файла совпадает с незакоммиченной пачкой и повтор перезаписывает файл, а не создаёт дубль.
+ * Оффсеты коммитятся после записи пачки.
  */
 public class HdfsLoader {
 
@@ -55,18 +55,19 @@ public class HdfsLoader {
                     continue;
                 }
 
-                Map<String, StringBuilder> batches = new HashMap<>();
-                for (ConsumerRecord<String, String> record : records) {
-                    batches.computeIfAbsent(record.topic(), t -> new StringBuilder())
-                            .append(record.value()).append('\n');
-                }
+                for (TopicPartition partition : records.partitions()) {
+                    List<ConsumerRecord<String, String>> partitionRecords = records.records(partition);
+                    StringBuilder content = new StringBuilder();
+                    for (ConsumerRecord<String, String> record : partitionRecords) {
+                        content.append(record.value()).append('\n');
+                    }
+                    long firstOffset = partitionRecords.get(0).offset();
 
-                for (Map.Entry<String, StringBuilder> batch : batches.entrySet()) {
-                    Path dir = new Path("/data/" + batch.getKey());
+                    Path dir = new Path("/data/" + partition.topic());
                     fs.mkdirs(dir);
-                    Path file = new Path(dir, "batch-" + UUID.randomUUID() + ".json");
-                    try (FSDataOutputStream out = fs.create(file)) {
-                        out.write(batch.getValue().toString().getBytes(StandardCharsets.UTF_8));
+                    Path file = new Path(dir, "p" + partition.partition() + "-" + firstOffset + ".json");
+                    try (FSDataOutputStream out = fs.create(file, true)) {
+                        out.write(content.toString().getBytes(StandardCharsets.UTF_8));
                     }
                     System.out.println("Записано в HDFS: " + file);
                 }
